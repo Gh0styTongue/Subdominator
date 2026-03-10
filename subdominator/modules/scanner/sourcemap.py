@@ -1,36 +1,48 @@
-import httpx
 import asyncio
-from bs4 import BeautifulSoup
+import warnings
 from urllib.parse import urljoin
+from bs4 import XMLParsedAsHTMLWarning
+from playwright.async_api import async_playwright
 from subdominator.modules.logger.logger import logger
 
-async def check_sourcemap_leakage(subdomain, timeout=10):
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
+
+async def check_sourcemap_leakage(subdomain, timeout=15):
     """
-    Scans a subdomain for .js.map leakage. 
-    Flags as vulnerable if > 3 maps are found.
+    Uses Playwright to load a site and listen for all JS requests.
+    Checks for .map files for every JS resource discovered.
     """
     found_maps = []
     url = f"http://{subdomain}"
     
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, verify=False) as client:
-            response = await client.get(url)
-            if response.status_code != 200:
-                return None
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context(ignore_https_errors=True)
+            page = await context.new_page()
 
-            soup = BeautifulSoup(response.text, 'html.parser')
-            scripts = [script['src'] for script in soup.find_all('script', src=True)]
-            
-            for js_url in scripts:
-                full_js_url = urljoin(url, js_url)
-                map_url = f"{full_js_url}.map"
-                
-                try:
-                    map_res = await client.get(map_url)
-                    if map_res.status_code == 200 and "application/json" in map_res.headers.get("Content-Type", ""):
-                        found_maps.append(map_url)
-                except httpx.RequestError:
-                    continue
+            js_urls = set()
+
+            page.on("request", lambda request: js_urls.add(request.url) 
+                    if request.resource_type == "script" else None)
+
+            try:
+                await page.goto(url, timeout=timeout * 1000, wait_until="networkidle")
+            except Exception:
+                await page.goto(f"https://{subdomain}", timeout=timeout * 1000, wait_until="networkidle")
+
+            await browser.close()
+
+            import httpx
+            async with httpx.AsyncClient(verify=False, timeout=5.0) as client:
+                for js_url in js_urls:
+                    map_url = f"{js_url}.map"
+                    try:
+                        res = await client.get(map_url)
+                        if res.status_code == 200 and "application/json" in res.headers.get("Content-Type", ""):
+                            found_maps.append(map_url)
+                    except Exception:
+                        continue
 
             if len(found_maps) > 3:
                 return {
@@ -39,7 +51,7 @@ async def check_sourcemap_leakage(subdomain, timeout=10):
                     "count": len(found_maps),
                     "files": found_maps
                 }
-    except Exception as e:
+    except Exception:
         pass
         
     return None
