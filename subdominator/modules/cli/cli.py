@@ -23,9 +23,12 @@ def cli():
         parser.add_argument("-ls", "--list-source", action="store_true")
         parser.add_argument("-duc", "--disable-update-check", action="store_true")
         parser.add_argument("-V", "--verbose", action="store_true")
-        parser.add_argument("-sup", "--show-updates", action="store_true")   
-        parser.add_argument("-sm", "--sourcemap", action="store_true", help="Check for sourcemap leakage")
+        parser.add_argument("-sup", "--show-updates", action="store_true")     
         parser.add_argument("-fw", "--filter-wildcards", action="store_true")
+        
+        # New Feature: Sourcemap Leakage Flag
+        parser.add_argument("-sm", "--sourcemap", action="store_true")
+        
         parser.add_argument("-json", "--json", action="store_true")
         parser.add_argument("-s", "--silent", action="store_true")
         parser.add_argument("-ir", "--include-resources", type=str,default=None)
